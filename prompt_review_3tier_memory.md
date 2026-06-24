@@ -1,7 +1,9 @@
 # 🔍 Prompt Review: 3-Tier Memory & Context Allocation Strategy
 
 > **Verdict:** The prompt is **strong for a single-agent implementation** but has **critical gaps** for production-grade or multi-agent (agentic AI) use.  
-> Below is a full audit across 7 dimensions, followed by a corrected, production-ready prompt.
+> Below is a full audit across 7 dimensions, followed by two prompts:
+> 1. A corrected single-agent prompt (⭐⭐⭐⭐)
+> 2. A **new, production-ready Agentic AI prompt** (⭐⭐⭐⭐⭐) designed for multi-agent, tool-using systems.
 
 ---
 
@@ -285,11 +287,263 @@ START → context_manager_node → chatbot_node → memory_update_node → END
 
 ---
 
-## 📌 Is the Original Prompt Best for Single Agent vs. Agentic AI?
+## 🤖 Production-Ready Prompt — Agentic AI (Multi-Agent Systems)
 
-| Use Case | Rating | Notes |
-|----------|--------|-------|
-| **Single conversational agent** | ⭐⭐⭐⭐ (with corrections) | Strong baseline; needs the 7 fixes above |
-| **Agentic AI (multi-agent, tool-use)** | ⭐⭐ | Missing: shared memory namespace, scratchpad state, persistence, inter-agent protocol |
+> **Target:** Multi-agent pipelines with tool-use, concurrent agents, durable memory, and inter-agent episodic handoff.
 
-**Recommendation:** Use the corrected prompt above for single-agent work. For multi-agent systems, the prompt needs a separate `<multi_agent_spec>` section covering shared state, memory locking, and cross-agent episodic handoff.
+```
+<role>
+You are a Principal AI Systems Architect specializing in LangGraph (v0.2+), production-grade
+multi-agent orchestration, distributed memory systems, and LLM context window optimization.
+You write enterprise-quality Python code with full observability, fault tolerance, and
+thread safety built in from the start.
+</role>
+
+<task>
+Write a complete, immediately-runnable Python script (Python 3.11+) using `langgraph>=0.2`
+and `langchain>=0.2` that implements a "3-Tier Memory & Context Allocation Strategy" for
+a MULTI-AGENT (agentic AI) system.
+
+The system must support:
+  - Multiple specialized agents (Planner, Executor, Critic) sharing a common memory namespace
+  - Tool-use by agents (at minimum: web_search, code_executor, file_reader mock tools)
+  - Cross-session durable memory via SQLite (no external DB required to run)
+  - Thread-safe concurrent memory access
+  - Agent scratchpad for intermediate reasoning steps
+  - Inter-agent episodic handoff (Agent A's output becomes Agent B's Tier 2 context)
+
+Use mock functions for all external integrations so the script runs end-to-end without
+external services (except the Groq LLM API).
+</task>
+
+<memory_architecture>
+
+## Tier 1 — Shared Semantic Memory (Persistent Fact Store)
+
+  - A SQLite-backed fact store (use Python's built-in `sqlite3` module, no ORM needed).
+  - Schema: facts(key TEXT PRIMARY KEY, value TEXT, priority TEXT, updated_at TEXT)
+  - Priority levels: "permanent" | "session" | "ephemeral"
+    * permanent: never auto-evicted (e.g., user name, project goals)
+    * session: survives the current session only (e.g., user's current task)
+    * ephemeral: single-turn facts (e.g., user's stated mood)
+  - Access pattern: ALL agents share the same SQLite file (path: "agent_memory.db").
+  - Thread safety: Wrap all reads/writes in a threading.Lock() to prevent corruption
+    when agents run concurrently.
+  - Provide: `read_facts(priority_filter=None) -> dict`,
+              `write_fact(key, value, priority="session") -> None`,
+              `evict_ephemeral_facts() -> int` (returns count evicted)
+
+## Tier 2 — Episodic Memory (Cross-Agent & Cross-Session Store)
+
+  - A second SQLite table: episodes(id INTEGER PRIMARY KEY, agent_id TEXT, summary TEXT,
+    embedding_mock TEXT, relevance_score REAL, created_at TEXT)
+  - "embedding_mock": store the first 50 characters of the summary as a fake embedding
+    key for demo purposes.
+  - Retrieval: Mock cosine similarity by string overlap ratio (use difflib.SequenceMatcher).
+    Only return episodes with similarity > 0.3.
+  - CRITICAL — Inter-Agent Handoff:
+    When Agent A (Planner) finishes, its final output is written as an episode with
+    agent_id="planner". Agent B (Executor) retrieves planner episodes as part of its
+    Tier 2 context. This must be explicit in the code and commented.
+  - Provide: `store_episode(agent_id, summary) -> None`,
+              `retrieve_episodes(query, top_k=3) -> list[dict]`
+
+## Tier 3 — Agent Scratchpad (Working Memory / Short-Term)
+
+  - Each agent has its OWN scratchpad — a list of intermediate reasoning steps
+    stored in the LangGraph state.
+  - Scratchpad entries are TypedDict: {"step": str, "content": str, "token_count": int}
+  - Scratchpad is NEVER persisted to SQLite — it is cleared at the end of each agent's turn.
+  - The context_manager_node packs scratchpad entries into the LLM context within
+    the short-term budget.
+  - Current session chat messages (HumanMessage / AIMessage) are also part of Tier 3,
+    managed by LangGraph's SqliteSaver checkpointer.
+
+</memory_architecture>
+
+<token_budget>
+
+## Input Window = 8,000 tokens (applies PER AGENT PER TURN)
+
+Use tiktoken with encoding "cl100k_base" as an approximation.
+Add a comment: "For LLaMA production use, replace with
+AutoTokenizer.from_pretrained('meta-llama/Meta-Llama-3-70B') for exact counts."
+
+| Budget Slot              | Tokens | % |
+|--------------------------|--------|---|
+| System Prompt (Tier 1)   | 1,200  | 15% |
+| Shared Facts (Tier 1)    |   800  | 10% |
+| Episodic Context (Tier 2)|  2,400 | 30% |
+| Scratchpad (Tier 3)      |  1,600 | 20% |
+| Chat History (Tier 3)    |  2,000 | 25% |
+
+## Flex-Space Rollover (same principle, extended for agents)
+
+  episode_used = actual tokens consumed by retrieved episodes
+  episode_rollover = EPISODE_BUDGET (2,400) - episode_used
+  scratchpad_used = actual tokens consumed by scratchpad
+  scratchpad_rollover = SCRATCHPAD_BUDGET (1,600) - scratchpad_used
+  total_rollover = episode_rollover + scratchpad_rollover
+  chat_effective_budget = CHAT_BUDGET (2,000) + total_rollover
+
+## Output Token Control
+  Set max_tokens=2048 on the LLM call. NEVER reserve output space inside input window.
+
+## Priority Eviction Order (when over-budget)
+  Drop in this order until within budget:
+  1. Ephemeral facts (Tier 1, priority="ephemeral")
+  2. Low-relevance episodes (Tier 2, lowest score first)
+  3. Oldest scratchpad steps (Tier 3, oldest first)
+  4. Oldest chat messages (Tier 3, but ALWAYS keep the last 2 exchanges)
+  NEVER drop: system prompt, permanent facts, the latest HumanMessage.
+
+</token_budget>
+
+<agent_spec>
+
+## Agents (implement as separate node functions)
+
+### 1. planner_agent_node
+  - Role: Breaks the user's goal into a numbered action plan.
+  - Tools available: None (pure reasoning).
+  - On completion: Writes its plan as an episode to Tier 2 (agent_id="planner").
+  - Updates Tier 1: Extracts the user's stated goal and writes it as a
+    session-priority fact (key="current_goal").
+  - Scratchpad: Records each reasoning step (e.g., "Step 1: Identify constraints").
+
+### 2. executor_agent_node
+  - Role: Executes the plan from the planner.
+  - Tier 2 retrieval: Fetches planner episodes to load the plan into context.
+  - Tools available (mock implementations required for all):
+    * web_search(query: str) -> str  — returns a fake search snippet
+    * code_executor(code: str) -> str  — returns "Execution result: [code[:30]]..."
+    * file_reader(path: str) -> str  — returns "File content mock for: [path]"
+  - Tool invocation: Use LangGraph's ToolNode or manually call tools in a loop.
+    Implement a MAX_TOOL_CALLS=5 guard to prevent infinite loops.
+  - Scratchpad: Records each tool call and result as a step.
+  - On completion: Writes its execution summary as an episode (agent_id="executor").
+
+### 3. critic_agent_node
+  - Role: Reviews the executor's output for correctness and completeness.
+  - Tier 2 retrieval: Fetches both planner AND executor episodes.
+  - Outputs: A structured critique dict: {"score": int (1-10), "issues": list[str],
+    "approved": bool}
+  - If approved=False AND retry_count < 2: route back to executor_agent_node.
+  - If approved=True OR retry_count >= 2: route to response_synthesizer_node.
+  - Writes critique as an episode (agent_id="critic").
+
+### 4. response_synthesizer_node
+  - Role: Synthesizes all agent outputs into a final, user-facing response.
+  - Reads: planner, executor, and critic episodes from Tier 2.
+  - Writes: Final response to state.
+  - Calls evict_ephemeral_facts() to clean up Tier 1 after the turn.
+
+### 5. context_manager_node (shared utility, called by each agent at the start of its turn)
+  - Inputs: current agent_id, raw messages, current scratchpad
+  - Reads Tier 1 facts (filtered by priority), Tier 2 episodes (relevant to current query)
+  - Applies token budgeting and flex-space rollover
+  - Applies priority eviction if over budget
+  - Returns: budgeted_messages (ready for LLM), budget_report dict
+  - budget_report keys: tier1_tokens, tier2_tokens, scratchpad_tokens,
+    chat_tokens, total_tokens, rollover_applied, evictions_made
+
+</agent_spec>
+
+<graph_spec>
+
+## State (TypedDict — shared across all agents)
+
+  class AgentState(TypedDict):
+      messages: Annotated[list[AnyMessage], operator.add]   # full raw history
+      user_facts: dict                                       # Tier 1 in-memory cache
+      scratchpad: list[dict]                                 # current agent's working memory
+      budgeted_messages: list[AnyMessage]                   # context-managed, LLM-ready
+      budget_report: dict                                    # token usage per slot
+      current_agent: str                                     # which agent is active
+      plan: str                                              # planner's output
+      execution_result: str                                  # executor's output
+      critique: dict                                         # critic's output
+      retry_count: int                                       # executor retry counter
+      tool_calls_made: int                                   # tool call guard counter
+      llm_calls: int                                         # total session LLM calls
+      final_response: str                                    # synthesized user response
+
+## Graph Topology
+
+  START
+    → planner_agent_node
+    → executor_agent_node
+    → critic_agent_node
+    → [conditional edge]:
+          if critique["approved"] == False AND retry_count < 2:
+              → executor_agent_node  (retry)
+          else:
+              → response_synthesizer_node
+    → END
+
+## Checkpointer
+  Use SqliteSaver from langgraph.checkpoint.sqlite with db_path="agent_checkpoints.db".
+  This provides cross-session persistence. Use a uuid4 thread_id per user session.
+
+</graph_spec>
+
+<observability>
+
+  After EACH agent node completes, print a structured log line:
+  [AGENT: {agent_id}] Tier1={n}t | Tier2={n}t | Scratchpad={n}t | Chat={n}t |
+  Total={n}t | Rollover={n}t | Evictions={n} | ToolCalls={n}
+
+  After the full pipeline completes, print a session summary:
+  [SESSION SUMMARY] LLM calls: {n} | Episodes stored: {n} | Facts written: {n} |
+  Ephemeral facts evicted: {n} | Total input tokens: {n}
+
+</observability>
+
+<edge_case_guarantees>
+
+  1. Memory Lock: All SQLite writes MUST acquire a threading.Lock before writing.
+     Demonstrate this with a comment showing where the lock is acquired and released.
+  2. Tool Loop Guard: executor_agent_node must stop calling tools after MAX_TOOL_CALLS=5
+     and include its partial results in the response.
+  3. Critic Retry Cap: retry_count is checked BEFORE routing back to executor.
+     On retry_count >= 2, always proceed to response_synthesizer_node.
+  4. Context Overflow: If total budgeted tokens > 8,000 after all evictions,
+     raise ContextBudgetError showing per-slot usage.
+  5. DB Init: On startup, auto-create the SQLite tables if they do not exist
+     (use CREATE TABLE IF NOT EXISTS).
+  6. Empty Episode Store: If no episodes exist for a query, the agent must still
+     function correctly with only Tier 1 facts and Tier 3 history.
+
+</edge_case_guarantees>
+
+<requirements>
+  - Python 3.11+, langgraph>=0.2, langchain>=0.2, tiktoken, langchain-groq
+  - Use SqliteSaver as the checkpointer (from langgraph.checkpoint.sqlite).
+  - Use ChatGroq with model="llama-3.3-70b-versatile", temperature=0, max_tokens=2048.
+  - Load GROQ_API_KEY from a .env file using python-dotenv.
+  - All SQLite operations use Python's built-in sqlite3 — no SQLAlchemy or ORM.
+  - Every node function must be a pure function (receives state, returns state update dict).
+  - All mock tools (web_search, code_executor, file_reader) must be implemented
+    as proper Python functions with type hints, not just lambdas.
+  - Add heavy educational comments explaining:
+      * Why thread locking is needed for shared memory
+      * How inter-agent episodic handoff works
+      * How the flex-space rollover is calculated
+      * Why the critic's retry loop has a hard cap
+      * How SqliteSaver enables cross-session persistence
+  - Include a __main__ block with a REPL loop that:
+      * Accepts a user goal as input
+      * Runs the full Planner → Executor → Critic → Synthesizer pipeline
+      * Prints the final_response and the session summary
+      * Type 'quit' or 'exit' to stop
+</requirements>
+```
+
+---
+
+## 📌 Final Ratings: Single Agent vs. Agentic AI
+
+| Use Case | Prompt to Use | Rating | Key Strengths |
+|----------|--------------|--------|---------------|
+| **Single conversational agent** | "Corrected & Production-Ready Prompt" (above) | ⭐⭐⭐⭐ | 3-tier memory, rollover, write-back, overflow handling |
+| **Agentic AI (multi-agent, tool-use)** | **"Agentic AI Prompt"** (this section) | ⭐⭐⭐⭐⭐ | Shared namespace, thread-safety, scratchpad, inter-agent handoff, durable persistence, critic retry loop, priority eviction |

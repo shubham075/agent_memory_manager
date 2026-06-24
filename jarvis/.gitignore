@@ -1,0 +1,15 @@
+# Environment
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# JARVIS runtime data (SQLite DBs + Qdrant vectors — local only)
+data/jarvis_memory.db
+data/jarvis_checkpoints.db
+data/qdrant_storage/
+
+# Keep data directory tracked
+!data/.gitkeep
+

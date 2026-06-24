@@ -1,0 +1,21 @@
+# ── Core LangGraph / LangChain ────────────────────────────────────────────────
+langgraph>=0.2
+langchain>=0.2
+langchain-groq>=0.1
+langchain-core>=0.2
+
+# ── LLM & Token Counting ──────────────────────────────────────────────────────
+tiktoken>=0.7
+groq>=0.9
+
+# ── Vector DB (Tier 2 — Episodic RAG) ────────────────────────────────────────
+qdrant-client>=1.9
+sentence-transformers>=3.0
+
+# ── Persistence ───────────────────────────────────────────────────────────────
+langgraph-checkpoint-sqlite>=2.0   # SqliteSaver for cross-session checkpointing
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0
+rich>=13.0        # Beautiful CLI output
+pyfiglet>=1.0     # JARVIS ASCII art banner

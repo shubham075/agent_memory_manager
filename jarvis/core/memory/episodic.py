@@ -122,11 +122,13 @@ def retrieve_episodes(
     """
     client = _get_client()
 
-    # Skip retrieval if collection is empty
+    # Skip retrieval if collection is empty.
+    # NOTE: info.points_count can be None in qdrant-client >= 1.9 during
+    # index optimization even when data exists. Use client.count() instead
+    # which always returns an accurate count regardless of indexing state.
     try:
-        info = client.get_collection(QDRANT_COLLECTION)
-        count = info.points_count if info.points_count is not None else 0
-        if count == 0:
+        count_result = client.count(collection_name=QDRANT_COLLECTION, exact=False)
+        if count_result.count == 0:
             return []
     except Exception:
         return []

@@ -64,6 +64,10 @@ def memory_update_node(state: JarvisState) -> dict:
     user_text = latest_human.content
     ai_text   = latest_ai.content
 
+    # Guard: skip memory writes if AI response is empty or failed
+    if not ai_text or not ai_text.strip():
+        return {}
+
     # ── Tier 1 Update: Extract and persist new facts ───────────────────────────
     _extract_and_store_facts(user_text)
 

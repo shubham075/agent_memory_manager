@@ -19,3 +19,13 @@ langgraph-checkpoint-sqlite>=2.0   # SqliteSaver for cross-session checkpointing
 python-dotenv>=1.0
 rich>=13.0        # Beautiful CLI output
 pyfiglet>=1.0     # JARVIS ASCII art banner
+
+# ── Voice Mode (required for --voice flag) ────────────────────────────────────
+faster-whisper>=1.0   # Local STT: Whisper on CTranslate2 (tiny + small models)
+edge-tts>=6.1         # TTS: Microsoft Neural Voices (en-GB-RyanNeural, hi-IN-MadhurNeural)
+sounddevice>=0.4      # Microphone capture via PortAudio
+playsound3>=1.0       # MP3 playback via Windows MCI (no compilation needed)
+                      # NOTE: pygame NOT used — pygame 2.6.x fails on Python 3.14
+                      #       (distutils.msvccompiler was removed in 3.14)
+psutil>=5.9           # CPU usage monitoring for wake word CPU guard
+scipy>=1.11           # scipy.io.wavfile — save NumPy audio arrays as .wav for Whisper

@@ -7,7 +7,19 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env")
+# Resolve .env: check jarvis/.env first, then parent dir, then let dotenv auto-search.
+# This makes the project portable across different machine layouts.
+_here = Path(__file__).parent.parent   # jarvis/
+_env_candidates = [
+    _here / ".env",                    # jarvis/.env  (preferred)
+    _here.parent / ".env",             # MEMORY_MANAGEMENT/.env  (current layout)
+]
+for _p in _env_candidates:
+    if _p.exists():
+        load_dotenv(dotenv_path=_p)
+        break
+else:
+    load_dotenv()  # fallback: search upward from cwd
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR  = Path(__file__).parent.parent          # jarvis/

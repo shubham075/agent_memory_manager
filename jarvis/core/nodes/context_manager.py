@@ -130,7 +130,10 @@ def context_manager_node(state: JarvisState) -> dict:
     # ── 6. Assemble final message list ────────────────────────────────────────
     budgeted_messages = [SystemMessage(content=system_content)] + trimmed
 
-    total_tokens = system_tokens + rag_used + history_tokens
+    # NOTE: rag_used tokens are already embedded inside system_tokens
+    # (RAG context is injected into _SYSTEM_TEMPLATE). Adding rag_used again
+    # would double-count them. total_tokens = system + history only.
+    total_tokens = system_tokens + history_tokens
 
     budget_report = {
         "system_tokens":          system_tokens,
@@ -151,23 +154,27 @@ def context_manager_node(state: JarvisState) -> dict:
     }
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers ─────────────────────────────────────────────────────────────────
 
 def _trim_to_budget(history: list, budget: int, must_keep) -> list:
     """
     Drop oldest messages first until total tokens <= budget.
     The must_keep message (latest HumanMessage) is NEVER dropped.
+
+    O(n) implementation — iterates once from the front, removing messages
+    until budget is satisfied. list.remove() was O(n) per call (O(n²) total).
     """
     total = count_messages_tokens(history)
     if total <= budget:
         return history
 
     result = list(history)
-    for msg in history:
-        if msg is must_keep:
+    i = 0
+    while total > budget and i < len(result):
+        if result[i] is must_keep:
+            i += 1
             continue
-        result.remove(msg)
-        total -= count_message_tokens(msg)
-        if total <= budget:
-            break
+        total -= count_message_tokens(result[i])
+        result.pop(i)
+        # Do NOT increment i — after pop, next element shifts into position i
     return result

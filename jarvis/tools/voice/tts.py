@@ -14,6 +14,7 @@ Why playsound3 instead of pygame?
 """
 import asyncio
 import tempfile
+import threading
 from pathlib import Path
 from typing import Literal
 
@@ -46,14 +47,24 @@ async def _save_to_tempfile(text: str, voice: str) -> str:
     return tmp_path
 
 
+# ── Playback control ─────────────────────────────────────────────────────────
+_stop_event: threading.Event = threading.Event()
+
+
 def speak(text: str, lang: str | None = None) -> None:
     """
     Convert text to speech and play through speakers.
     Blocks until audio finishes playing.
 
     lang: "en" | "hi" | None (auto-detect from text content)
+
+    Uses a fresh event loop per call to avoid RuntimeError when speak() is
+    called from inside an already-running asyncio event loop (e.g. FastAPI).
     """
     if not text.strip():
+        return
+    if _stop_event.is_set():
+        _stop_event.clear()   # reset for next call
         return
 
     language = lang or detect_language(text)
@@ -61,8 +72,12 @@ def speak(text: str, lang: str | None = None) -> None:
     tmp_path = None
 
     try:
-        # Generate audio and save to temp MP3
-        tmp_path = asyncio.run(_save_to_tempfile(text, voice))
+        # Create a fresh event loop — avoids RuntimeError if one is already running
+        loop = asyncio.new_event_loop()
+        try:
+            tmp_path = loop.run_until_complete(_save_to_tempfile(text, voice))
+        finally:
+            loop.close()
 
         # Play MP3 using playsound3 (uses Windows MCI — no compilation needed)
         from playsound3 import playsound
@@ -79,9 +94,13 @@ def speak(text: str, lang: str | None = None) -> None:
 
 def stop_speaking() -> None:
     """
-    Interrupt current TTS playback.
-    playsound3 is blocking, so interruption is only possible from another thread.
-    This sets a flag — actual interruption requires playing thread to be daemonized.
+    Signal that the current TTS playback should be interrupted.
+    Sets a threading.Event that speak() checks before starting playback.
+
+    Note: playsound3 is blocking so an in-progress clip cannot be interrupted
+    mid-sentence. This prevents the NEXT queued speak() call from playing,
+    which effectively mutes JARVIS for the current turn.
+    Full mid-sentence interruption requires running playsound in a daemon thread
+    (planned for a future voice upgrade).
     """
-    # Future: use threading.Event for interruptible playback
-    pass
+    _stop_event.set()

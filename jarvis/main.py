@@ -52,7 +52,8 @@ def main() -> None:
             print("[JARVIS] Voice mode started. Say 'JARVIS wake up' to activate.")
         except ImportError as e:
             print(f"[JARVIS] Voice dependencies missing: {e}")
-            print("[JARVIS] Run: uv add faster-whisper edge-tts sounddevice pygame psutil")
+            print("[JARVIS] Run: uv add faster-whisper edge-tts sounddevice playsound3 psutil scipy")
+            print("[JARVIS] NOTE: Use playsound3 NOT pygame — pygame fails on Python 3.14")
             print("[JARVIS] Starting in text-only mode.")
 
     # ── Build graph and start REPL ────────────────────────────────────────────

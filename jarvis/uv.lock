@@ -938,6 +938,7 @@ voice = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "sounddevice" },
+    { name = "transformers" },
 ]
 
 [package.dev-dependencies]
@@ -949,9 +950,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "edge-tts", specifier = ">=7.2.8" },
-    { name = "edge-tts", marker = "extra == 'voice'", specifier = ">=6.1" },
+    { name = "edge-tts", marker = "extra == 'voice'", specifier = ">=7.2.8" },
     { name = "faster-whisper", specifier = ">=1.2.1" },
-    { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.0" },
+    { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.2.1" },
     { name = "groq", specifier = ">=0.9" },
     { name = "langchain", specifier = ">=0.2" },
     { name = "langchain-core", specifier = ">=0.2" },
@@ -959,9 +960,9 @@ requires-dist = [
     { name = "langgraph", specifier = ">=0.2" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0" },
     { name = "playsound3", specifier = ">=3.3.1" },
-    { name = "playsound3", marker = "extra == 'voice'", specifier = ">=1.0" },
+    { name = "playsound3", marker = "extra == 'voice'", specifier = ">=3.3.1" },
     { name = "psutil", specifier = ">=7.2.2" },
-    { name = "psutil", marker = "extra == 'voice'", specifier = ">=5.9" },
+    { name = "psutil", marker = "extra == 'voice'", specifier = ">=7.2.2" },
     { name = "pyfiglet", specifier = ">=1.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "qdrant-client", specifier = ">=1.9" },
@@ -970,8 +971,9 @@ requires-dist = [
     { name = "scipy", marker = "extra == 'voice'", specifier = ">=1.11" },
     { name = "sentence-transformers", specifier = ">=3.0" },
     { name = "sounddevice", specifier = ">=0.5.5" },
-    { name = "sounddevice", marker = "extra == 'voice'", specifier = ">=0.4" },
+    { name = "sounddevice", marker = "extra == 'voice'", specifier = ">=0.5.5" },
     { name = "tiktoken", specifier = ">=0.7" },
+    { name = "transformers", marker = "extra == 'voice'", specifier = ">=5.0" },
 ]
 provides-extras = ["voice"]
 

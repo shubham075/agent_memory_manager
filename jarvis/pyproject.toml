@@ -32,12 +32,13 @@ dependencies = [
 [project.optional-dependencies]
 # Voice mode — install with: uv sync --extra voice
 voice = [
-    "faster-whisper>=1.0",
-    "edge-tts>=6.1",
-    "sounddevice>=0.4",
-    "playsound3>=1.0",   # Windows MCI playback — no compilation, works on Python 3.14
-    "psutil>=5.9",
-    "scipy>=1.11",       # scipy.io.wavfile for Whisper audio format conversion
+    "faster-whisper>=1.2.1",
+    "edge-tts>=7.2.8",
+    "sounddevice>=0.5.5",
+    "playsound3>=3.3.1",   # Windows MCI playback — no compilation, works on Python 3.14
+    "psutil>=7.2.2",
+    "scipy>=1.11",         # scipy.io.wavfile for Whisper audio format conversion
+    "transformers>=5.0",  # Hinglish TTS: Aaryan39/hinglish-tts-3b-ft-synthetic
 ]
 
 [project.scripts]

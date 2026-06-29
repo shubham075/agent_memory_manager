@@ -1,19 +1,27 @@
 """
 JARVIS CLI — REPL Interface
 ============================
-The main conversational loop. Uses Rich for formatted output.
+Two strict modes — determined by the --voice flag in main.py:
 
-Commands:
+  Text mode  (python main.py)         — keyboard input only, no voice
+  Voice mode (python main.py --voice) — wake word + STT only, no keyboard
+
+Slash commands (text mode only):
   quit / exit   — End session
   /memory       — Show all stored Tier 1 facts
   /episodes     — Show Tier 2 episode count
   /budget       — Show last token budget report
   /clear        — Clear screen
   /help         — Show command list
+
+In voice mode:
+  Say 'JARVIS wake up' → JARVIS replies 'Yes, sir?' → speak your query.
+  Press Ctrl+C to exit.
 """
 import sys
 import os
 import uuid
+import time
 
 from rich.console import Console
 from rich.panel import Panel
@@ -115,8 +123,13 @@ def handle_command(cmd: str, state: dict) -> bool:
 
 
 def run_repl(graph, thread_id: str | None = None, voice_manager=None) -> None:
-    """Main REPL loop. Pass thread_id to resume a previous session.
-    Pass voice_manager to enable voice mode (wake word → listen → speak)."""
+    """
+    Main REPL loop.
+
+    Text mode  (voice_manager=None): reads from keyboard, no voice at all.
+    Voice mode (voice_manager set) : polls wake-word queue only, no keyboard.
+                                     Press Ctrl+C to exit.
+    """
     print_banner()
 
     if thread_id is None:
@@ -124,10 +137,16 @@ def run_repl(graph, thread_id: str | None = None, voice_manager=None) -> None:
 
     voice_mode = voice_manager is not None
     config = {"configurable": {"thread_id": thread_id}}
+
     console.print(f"[dim]Session ID: {thread_id}[/dim]")
     if voice_mode:
-        console.print("[bold green]🎙  Voice mode ON[/bold green] [dim]— say [cyan]'JARVIS wake up'[/cyan] to activate[/dim]")
-    console.print("[dim]Type [cyan]/help[/cyan] for commands. [cyan]quit[/cyan] to exit.\n[/dim]")
+        console.print(
+            "[bold green]🎙  Voice mode ON[/bold green] "
+            "[dim]— say [cyan]'JARVIS wake up'[/cyan] to activate · "
+            "[cyan]Ctrl+C[/cyan] to exit[/dim]"
+        )
+    else:
+        console.print("[dim]Type [cyan]/help[/cyan] for commands. [cyan]quit[/cyan] to exit.\n[/dim]")
 
     local_state = {"last_budget_report": {}}
     initial_state = {
@@ -140,38 +159,59 @@ def run_repl(graph, thread_id: str | None = None, voice_manager=None) -> None:
     }
 
     while True:
-        # ── Voice queue check (non-blocking) ─────────────────────────────────
-        # Check if wake word thread deposited a transcribed query
-        voice_input = voice_manager.get_pending_query() if voice_mode else None
-
-        if voice_input:
-            user_input = voice_input
-            console.print(f"[bold green]🎙 Voice[/bold green] [bold cyan]You ❯[/bold cyan] {user_input}")
-        else:
-            # Normal text input
-            prompt = "[bold green]🎙 You ❯[/bold green] " if voice_mode else "[bold cyan]You ❯[/bold cyan] "
+        # ══════════════════════════════════════════════════════════════════════
+        # VOICE MODE — wake word queue only, zero keyboard interaction
+        # ══════════════════════════════════════════════════════════════════════
+        if voice_mode:
             try:
-                user_input = console.input(prompt).strip()
+                user_input = voice_manager.get_pending_query()  # non-blocking
+            except (KeyboardInterrupt, EOFError):
+                console.print("\n[dim]Voice session ended. Goodbye, sir.[/dim]")
+                from tools.voice.tts import speak
+                speak("Goodbye, sir. Systems standing by.", lang="en")
+                break
+
+            if not user_input:
+                time.sleep(0.1)   # yield CPU while waiting for wake word
+                continue
+
+            console.print(
+                f"[bold green]🎙 You ❯[/bold green] [white]{user_input}[/white]"
+            )
+
+            # Allow spoken "quit" / "exit" to end voice session
+            if user_input.strip().lower() in ("quit", "exit", "jarvis quit", "jarvis exit"):
+                console.print(Panel(
+                    "[bold cyan]JARVIS[/bold cyan]: Goodbye, sir. Systems standing by.",
+                    border_style="cyan",
+                ))
+                from tools.voice.tts import speak
+                speak("Goodbye, sir. Systems standing by.", lang="en")
+                break
+
+        # ══════════════════════════════════════════════════════════════════════
+        # TEXT MODE — keyboard only, no voice at all
+        # ══════════════════════════════════════════════════════════════════════
+        else:
+            try:
+                user_input = console.input("[bold cyan]You ❯[/bold cyan] ").strip()
             except (KeyboardInterrupt, EOFError):
                 console.print("\n[dim]Session ended.[/dim]")
                 break
 
-        if not user_input:
-            continue
+            if not user_input:
+                continue
 
-        if user_input.lower() in ("quit", "exit"):
-            console.print(Panel(
-                "[bold cyan]JARVIS[/bold cyan]: Goodbye, sir. Systems standing by.",
-                border_style="cyan",
-            ))
-            if voice_mode:
-                from tools.voice.tts import speak
-                speak("Goodbye, sir. Systems standing by.", lang="en")
-            break
+            if user_input.lower() in ("quit", "exit"):
+                console.print(Panel(
+                    "[bold cyan]JARVIS[/bold cyan]: Goodbye, sir. Systems standing by.",
+                    border_style="cyan",
+                ))
+                break
 
-        if user_input.startswith("/"):
-            handle_command(user_input, local_state)
-            continue
+            if user_input.startswith("/"):
+                handle_command(user_input, local_state)
+                continue
 
         # ── Invoke LangGraph ──────────────────────────────────────────────────
         try:
@@ -193,7 +233,7 @@ def run_repl(graph, thread_id: str | None = None, voice_manager=None) -> None:
                 border_style="cyan",
                 padding=(1, 2),
             ))
-            # ── Speak response if voice mode active ───────────────────────────
+            # ── Speak response in voice mode ──────────────────────────────────
             if voice_mode:
                 voice_manager.speak_response(response_text)
 

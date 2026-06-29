@@ -1,7 +1,7 @@
 # JARVIS Project Context — Complete Resume Document
 > **Purpose:** Paste this file to any AI assistant on any machine to instantly resume work without re-analysis.  
-> **Last updated:** 2026-06-25 (Post bug-fix session)  
-> **Status:** ✅ Fully working — voice mode confirmed operational
+> **Last updated:** 2026-06-29 (Session 2 — Hinglish TTS + network bug fixes)  
+> **Status:** ✅ Fully working — text mode + voice mode both operational
 
 ---
 
@@ -34,15 +34,17 @@ python main.py --session <uuid> # resume a specific session
 | Orchestration | LangGraph | `langgraph==1.2.6` |
 | Tier 1 Memory | SQLite (`jarvis_memory.db`) | Permanent user facts |
 | Tier 2 Memory | Qdrant local + sentence-transformers | Real RAG, no server needed |
-| Tier 2 Embeddings | `all-MiniLM-L6-v2` (384-dim) | `sentence-transformers==5.6.0` |
+| Tier 2 Embeddings | `all-MiniLM-L6-v2` (384-dim) | `sentence-transformers==5.6.0` (offline-first) |
 | Tier 3 Memory | LangGraph SqliteSaver (`jarvis_checkpoints.db`) | Cross-session chat persistence |
 | Token counting | `tiktoken` cl100k_base | Approximation for LLaMA |
 | CLI | `rich` + `pyfiglet` | Beautiful REPL + token budget display |
 | STT | `faster-whisper==1.2.1` | Local Whisper (tiny=wake word, small=query) |
-| TTS | `edge-tts==7.2.8` | Microsoft Neural Voices (en-GB-RyanNeural) |
+| TTS (English) | `edge-tts==7.2.8` | `en-GB-RyanNeural` — British male, movie JARVIS style |
+| TTS (Hindi) | `edge-tts==7.2.8` | `hi-IN-MadhurNeural` — triggered by Devanagari script |
+| TTS (Hinglish) | `Aaryan39/hinglish-tts-3b-ft-synthetic` | HuggingFace pipeline, triggered by Roman-script keyword match |
 | Audio input | `sounddevice==0.5.5` | PortAudio microphone capture |
-| Audio output | `playsound3==3.3.1` | Windows MCI playback (NOT pygame — fails Python 3.14) |
-| Wake word | `psutil==7.2.2` + `faster-whisper` | CPU-guarded daemon thread |
+| Audio output | `playsound3==3.3.1` (edge-tts path) / `sounddevice` (Hinglish path) | Windows MCI + direct numpy play |
+| Wake word | `psutil==7.2.2` + `faster-whisper tiny` | CPU-guarded daemon thread |
 | Package manager | `uv` | Manages `.venv` — always use `.venv`, never the old `jarvis` venv |
 | Python | 3.14.2 (CPython) | Confirmed working |
 
@@ -204,7 +206,13 @@ AI response → voice_manager.speak_response(text)
 ```
 
 **Wake phrases:** "jarvis wake up", "jarvis, wake up", "hey jarvis", "jarvis wakeup"  
-**TTS voices:** English → `en-GB-RyanNeural`, Hindi (Devanagari) → `hi-IN-MadhurNeural`  
+**Language → TTS routing:**
+| Detected Language | Trigger | Engine |
+|-------------------|---------|--------|
+| `en` (default) | No Devanagari, no Hinglish keywords | edge-tts `en-GB-RyanNeural` |
+| `hi` | Any Devanagari char (U+0900–U+097F) | edge-tts `hi-IN-MadhurNeural` |
+| `hinglish` | Roman-script Hinglish keyword match | `Aaryan39/hinglish-tts-3b-ft-synthetic` |
+
 **Audio format:** 16kHz, mono, float32 (Whisper requirement)
 
 ---
@@ -292,11 +300,12 @@ pyfiglet==1.0.4
 ### Voice (in `[project.optional-dependencies].voice`):
 ```
 faster-whisper==1.2.1    # STT: Whisper on CTranslate2
-edge-tts==7.2.8          # TTS: Microsoft Neural Voices
-sounddevice==0.5.5       # Microphone via PortAudio
+edge-tts==7.2.8          # TTS: English + Hindi voices (edge-tts)
+sounddevice==0.5.5       # Microphone via PortAudio + Hinglish audio playback
 playsound3==3.3.1        # MP3 playback via Windows MCI (NOT pygame)
 psutil==7.2.2            # CPU monitoring
-scipy==1.18.0            # scipy.io.wavfile for audio format conversion
+scipy==1.18.0            # scipy.io.wavfile for Whisper audio format conversion
+transformers==5.12.1     # Hinglish TTS: Aaryan39/hinglish-tts-3b-ft-synthetic
 ```
 
 > **pygame is NOT used** — pygame 2.6.x fails to compile on Python 3.14 (distutils removed).
@@ -340,19 +349,29 @@ python main.py --session <uuid>
 
 ---
 
-## Bugs Fixed (2026-06-25 Session)
+## Bugs Fixed
+
+### Session 1 — 2026-06-25
 
 | # | Bug | File | Fix |
 |---|-----|------|-----|
 | BUG 3 | 🔴 Double-counted RAG tokens in `total_tokens` | `context_manager.py:136` | `total_tokens = system_tokens + history_tokens` (rag is inside system_tokens) |
-| BUG 6 | 🔴 `points_count` returns `None` in Qdrant ≥ 1.9 → false-empty RAG | `episodic.py:126` | Replaced with `client.count(exact=False)` |
+| BUG 6 | 🔴 `points_count` returns `None` in Qdrant ≥ 1.9 → false-empty RAG | `episodic.py:126` | Replaced with `client.count(exact=False)` in `retrieve_episodes()` |
 | BUG 5 | 🟡 Episodes stored in Qdrant even for empty AI responses | `memory_updater.py:67` | Guard: `if not ai_text.strip(): return {}` |
-| BUG 7 | 🟢 `asyncio.run()` fails inside existing event loop | `tts.py:63` | `asyncio.new_event_loop()` + `loop.run_until_complete()` |
+| BUG 7 | 🟢 `asyncio.run()` fails inside existing event loop | `tts.py` | `asyncio.new_event_loop()` + `loop.run_until_complete()` |
 | BUG 8 | 🟢 O(n²) `_trim_to_budget` via `list.remove()` | `context_manager.py:172` | Rewritten to O(n) index-based pop |
 | ISSUE 1 | 🟡 Hardcoded single `.env` path → breaks on move | `config.py:10` | Fallback chain: `jarvis/.env` → `parent/.env` → auto-search |
 | ISSUE 2 | 🟡 `pyproject.toml` was skeleton (no deps) → `uv sync` installed 0 packages | `pyproject.toml` | Full deps + voice extras group added |
-| ISSUE 3 | 🟢 `stop_speaking()` was a no-op | `tts.py:80` | Implemented with `threading.Event` |
+| ISSUE 3 | 🟢 `stop_speaking()` was a no-op | `tts.py` | Implemented with `threading.Event` |
 | ISSUE 5 | 🟢 No retry on Groq API failures | `chatbot.py:45` | Exponential backoff: 3 attempts (1s → 2s → 4s) |
+
+### Session 2 — 2026-06-29
+
+| # | Bug | File | Fix |
+|---|-----|------|-----|
+| NET-1 | 🔴 `getaddrinfo failed` — sentence-transformers hits HuggingFace on every startup | `episodic.py:69` | Offline-first: `local_files_only=True`, falls back to download only on cache miss |
+| BUG 6b | 🔴 `get_episode_count()` still used `points_count` (same as BUG 6, missed function) | `episodic.py:170` | Replaced with `client.count(exact=False)` — fixes `/episodes` command + `Cannot send a request` error |
+| FEAT-1 | 🟢 Hinglish (Roman script) detected as English, spoke with wrong voice | `tts.py` | Added 50-word Hinglish marker set + routed to `Aaryan39/hinglish-tts-3b-ft-synthetic` |
 
 ---
 
@@ -363,8 +382,8 @@ python main.py --session <uuid>
 | `stop_speaking()` only prevents next TTS call — can't interrupt mid-sentence | `tts.py` | Requires daemon thread for playsound; planned for future |
 | Tiny Whisper model may miss wake word in noisy environments | `wake_word.py` | Increase `CHUNK_DURATION=3.0` or switch to `base` model |
 | Regex fact extraction misses uppercase sentences | `memory_updater.py` | Lowercases before regex match — works for typical speech |
-| Hinglish treated as English for TTS voice selection | `tts.py` | Only Devanagari script → Hindi voice; Hinglish uses English voice |
 | `__del__ ImportError` on exit (Python 3.14) | `episodic.py` | `atexit.register(_close_client)` already mitigates this |
+| Hinglish TTS model is 3B params — slow on CPU, first load takes ~30s | `tts.py` | Cached after first load; consider quantized version if too slow |
 
 ---
 
@@ -380,7 +399,7 @@ Tools to add in `tools/` directory:
 | WhatsApp message handling | Medium | Via WhatsApp Business API |
 | Google Drive / Docs / Sheets | Medium | File access + editing |
 | Voice: interrupt mid-sentence (daemon thread) | Medium | Current stop_speaking() only gates next call |
-| Multilingual support (Hindi, Hinglish) | Medium | Improved language detection beyond Devanagari |
+| ✅ ~~Hinglish TTS support~~ | ~~Medium~~ | **Done — Aaryan39/hinglish-tts-3b-ft-synthetic** |
 | Notifications manager | Low | Desktop push notifications |
 | Wake word upgrade (Picovoice / OpenWakeWord) | Low | More accurate than Whisper tiny for keyword detection |
 
@@ -393,15 +412,17 @@ Tools to add in `tools/` directory:
 | `SqliteSaver` as context manager | Keeps SQLite connection open for full REPL session |
 | `atexit.register(_close_client)` in episodic.py | Prevents Qdrant `__del__ ImportError` on Python 3.14 shutdown |
 | `query_points()` not `search()` | qdrant-client 1.18 removed `.search()` |
-| `client.count()` for empty check | `points_count` returns None during Qdrant optimization |
+| `client.count()` for empty check (everywhere) | `points_count` returns None during Qdrant optimization — now used in both `retrieve_episodes()` AND `get_episode_count()` |
 | WAL mode on SQLite | Thread-safe concurrent reads for future multi-agent upgrade |
 | Regex fact extraction (not LLM) | Zero extra API calls for memory updates |
-| `all-MiniLM-L6-v2` embeddings | 384-dim, runs fully local, no API key needed |
+| `all-MiniLM-L6-v2` embeddings, offline-first | 384-dim, runs fully local; `local_files_only=True` avoids network errors |
 | `LLM_PROVIDER` env var | One-line swap from Groq → OpenAI GPT-4o |
 | `playsound3` not `pygame` | pygame 2.6.x fails to compile on Python 3.14 |
 | Dual Whisper model (tiny + small) | tiny for 2s wake-word loop (low CPU), small for accurate query transcription |
 | `asyncio.new_event_loop()` in TTS | Prevents RuntimeError if called inside existing event loop (e.g. FastAPI) |
 | Exponential backoff retry in chatbot_node | Handles Groq rate limits / transient API failures gracefully |
+| Hinglish detection via keyword set (50 words) | No extra model needed; fast O(1) set intersection; falls back to HF model only when matched |
+| `Aaryan39/hinglish-tts-3b-ft-synthetic` for Hinglish | HuggingFace pipeline; cached after first download; sounddevice plays numpy audio directly |
 
 ---
 

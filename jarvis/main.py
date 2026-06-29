@@ -2,9 +2,13 @@
 JARVIS Entry Point
 ===================
 Usage:
-    python main.py              # New session
-    python main.py --setup      # Run profile setup wizard
-    python main.py --session <id>  # Resume a previous session by ID
+    python main.py                  # Text mode  — keyboard input only
+    python main.py --voice          # Voice mode — wake word + STT only (no keyboard)
+    python main.py --setup          # Run profile setup wizard (first time)
+    python main.py --session <id>   # Resume a previous session by ID
+
+Modes are STRICT — voice mode has zero keyboard input, text mode has zero voice.
+In voice mode: say 'JARVIS wake up' to activate, press Ctrl+C to exit.
 """
 import sys
 import os

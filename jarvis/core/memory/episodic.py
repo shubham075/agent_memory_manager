@@ -69,8 +69,15 @@ def _close_client() -> None:
 def _get_embedder() -> SentenceTransformer:
     global _embedder
     if _embedder is None:
-        # normalize_embeddings=True ensures cosine similarity == dot product
-        _embedder = SentenceTransformer(EMBEDDING_MODEL)
+        # Offline-first: try local cache to avoid network errors when
+        # HuggingFace is unreachable (getaddrinfo failed, firewall, etc.).
+        # Model is cached in ~/.cache/huggingface/hub after first download.
+        try:
+            _embedder = SentenceTransformer(EMBEDDING_MODEL, local_files_only=True)
+        except Exception:
+            # Cache miss — must download (first run or cache cleared)
+            print(f"[episodic] Downloading embedding model '{EMBEDDING_MODEL}' from HuggingFace...")
+            _embedder = SentenceTransformer(EMBEDDING_MODEL)
     return _embedder
 
 
@@ -169,9 +176,11 @@ def retrieve_episodes(
 
 def get_episode_count() -> int:
     """Return total number of stored episodes."""
+    # NOTE: info.points_count can be None in qdrant-client >= 1.9 during
+    # index optimization. Use client.count() which is always accurate.
     try:
-        info = _get_client().get_collection(QDRANT_COLLECTION)
-        return info.points_count if info.points_count is not None else 0
+        result = _get_client().count(collection_name=QDRANT_COLLECTION, exact=False)
+        return result.count
     except Exception:
         return 0
 
